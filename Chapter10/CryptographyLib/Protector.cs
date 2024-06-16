@@ -1,11 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Text;
 using System.Xml.Linq;
 using static System.Convert;
+using static System.Console;
 
 namespace Packt.Shared
 {
@@ -15,19 +17,30 @@ namespace Packt.Shared
     private static readonly byte[] salt =
       Encoding.Unicode.GetBytes("7BANANAS");
 
-    // iterations must be at least 1000, we will use 2000 
-    private static readonly int iterations = 2000;
+    // iterations should be high enough to take at least 100ms to 
+    // generate a Key and IV on the target machine. 50,000 iterations
+    // takes 131ms on my 3.3 GHz Dual-Core Intel Core i7 MacBook Pro.
+    private static readonly int iterations = 50_000;
 
     public static string Encrypt(
       string plainText, string password)
     {
       byte[] encryptedBytes;
       byte[] plainBytes = Encoding.Unicode.GetBytes(plainText);
-      var aes = Aes.Create();
+
+      var aes = Aes.Create(); // abstract class factory method
+
+      var stopwatch = Stopwatch.StartNew();
+
       var pbkdf2 = new Rfc2898DeriveBytes(
         password, salt, iterations);
+
       aes.Key = pbkdf2.GetBytes(32); // set a 256-bit key 
       aes.IV = pbkdf2.GetBytes(16); // set a 128-bit IV 
+
+      WriteLine("{0:N0} milliseconds to generate Key and IV using {1:N0} iterations.",
+        arg0: stopwatch.ElapsedMilliseconds,
+        arg1: iterations);
 
       using (var ms = new MemoryStream())
       {
@@ -47,9 +60,12 @@ namespace Packt.Shared
     {
       byte[] plainBytes;
       byte[] cryptoBytes = Convert.FromBase64String(cryptoText);
+
       var aes = Aes.Create();
+
       var pbkdf2 = new Rfc2898DeriveBytes(
         password, salt, iterations);
+
       aes.Key = pbkdf2.GetBytes(32);
       aes.IV = pbkdf2.GetBytes(16);
 
@@ -94,19 +110,30 @@ namespace Packt.Shared
       return user;
     }
 
+    // check a user's password that is stored
+    // in the private static dictionary Users
     public static bool CheckPassword(string username, string password)
     {
       if (!Users.ContainsKey(username))
       {
         return false;
       }
+
       var user = Users[username];
 
+      return CheckPassword(username, password, 
+        user.Salt, user.SaltedHashedPassword);
+    }
+
+    // check a user's password using salt and hashed password
+    public static bool CheckPassword(string username, string password, 
+      string salt, string hashedPassword)
+    {
       // re-generate the salted and hashed password 
       var saltedhashedPassword = SaltAndHashPassword(
-        password, user.Salt);
+        password, salt);
 
-      return (saltedhashedPassword == user.SaltedHashedPassword);
+      return (saltedhashedPassword == hashedPassword);
     }
 
     private static string SaltAndHashPassword(
